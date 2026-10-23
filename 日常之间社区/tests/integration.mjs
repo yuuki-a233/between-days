@@ -1,0 +1,42 @@
+import assert from 'node:assert/strict';
+const base=process.env.TEST_URL||'http://localhost:3100';
+const initial=await (await fetch(base+'/api/community/me')).json();assert.equal(initial.localMode,true,'This suite only runs against the local development server.');
+const checks=[];let owner,admin,member,postId;
+function passed(name){checks.push(name);console.log('PASS',name)}
+async function account(email){let cookie='';async function req(url,method='GET',body){const headers={Origin:base,...(body instanceof FormData?{}:{'Content-Type':'application/json'}),...(cookie?{Cookie:cookie}:{})};const response=await fetch(base+url,{method,headers,body:body===undefined?undefined:body instanceof FormData?body:JSON.stringify(body)});const json=response.headers.get('content-type')?.includes('application/json')?await response.json():null;return{response,json,status:response.status}}const send=await req('/api/auth/email-otp/send-verification-otp','POST',{email,type:'sign-in'});assert.equal(send.status,200,JSON.stringify(send.json));const messages=await (await fetch(base+'/api/dev-mail')).json(),otp=messages.messages.find(m=>m.to===email).otp;const signed=await req('/api/auth/sign-in/email-otp','POST',{email,otp});assert.equal(signed.status,200,JSON.stringify(signed.json));cookie=signed.response.headers.getSetCookie().map(c=>c.split(';')[0]).join('; ');const me=await req('/api/community/me');assert.equal(me.status,200);return {req,user:me.json.user,otp,email}}
+try{
+ owner=await account('owner@between-days.test');admin=await account('admin@between-days.test');member=await account('member@between-days.test');
+ assert.equal(owner.user.role,'owner');assert.equal(admin.user.role,'admin');assert.equal(member.user.role,'member');passed('three email identities receive correct server-side roles');
+ const replay=await member.req('/api/auth/sign-in/email-otp','POST',{email:member.email,otp:member.otp});assert.notEqual(replay.status,200);passed('used OTP cannot be reused');
+ assert.equal((await fetch(base+'/api/community/posts')).status,401);passed('community content requires a session');
+ const draft={kind:'note',category:'技术笔记',title:'QA · 本地社区验证',body:'# INTEGRATION_TEST\n\n真实持久保存的测试内容。\n\n```js\nconsole.log("hello");\n```',coverId:'',attachmentId:'',link:'https://example.com/project'};
+ assert.equal((await member.req('/api/community/admin')).status,403);
+ assert.equal((await member.req('/api/community/posts','POST',draft)).status,403);passed('ordinary user cannot publish or enter administration');
+ await member.req('/api/community/applications','POST',{reason:'想分享代码项目和自己的学习笔记。'});
+ assert.equal((await admin.req('/api/community/admin/users','POST',{userId:member.user.id,action:'approve'})).status,200);
+ assert.equal((await member.req('/api/community/me')).json.canPublish,true);passed('administrator approval enables publishing');
+ const upload=new FormData();upload.append('file',new Blob(['# QA note\n\n- 本地测试\n'],{type:'text/markdown'}),'qa-community-note.md');const uploaded=await member.req('/api/community/upload','POST',upload);assert.equal(uploaded.status,200,JSON.stringify(uploaded.json));const fileId=uploaded.json.id;
+ const created=await member.req('/api/community/posts','POST',{...draft,attachmentId:fileId});assert.equal(created.status,200,JSON.stringify(created.json));postId=created.json.id;
+ const detail=await member.req('/api/community/posts/'+postId);assert.equal(detail.json.post.attachmentName,'qa-community-note.md');assert.equal(detail.json.post.body,draft.body);passed('text upload and no-cover publication persist with author ownership');
+ const file=await member.req('/api/community/files/'+fileId);assert.equal(file.status,200);assert.equal(file.response.headers.get('content-type'),'application/octet-stream');assert.match(file.response.headers.get('content-disposition'),/attachment/);passed('source and note attachments are downloadable without executable HTML');
+ assert.equal((await owner.req('/api/community/posts/'+postId,'PATCH',draft)).status,403);
+ assert.equal((await owner.req('/api/community/posts','POST',{...draft,attachmentId:fileId})).status,403);passed('even owner cannot rewrite another author or reuse their private uploads');
+ assert.equal((await member.req('/api/community/posts/'+postId,'PATCH',{...draft,title:'QA · 修改已保存',attachmentId:fileId})).status,200);
+ const root=await member.req('/api/community/posts/'+postId+'/comments','POST',{body:'QA 测试评论'});assert.equal(root.status,200);
+ const reply=await admin.req('/api/community/posts/'+postId+'/comments','POST',{body:'QA 管理员回复',parentId:root.json.id});assert.equal(reply.status,200);
+ assert.equal((await member.req('/api/community/comments/'+reply.json.id,'DELETE')).status,403);passed('comments and replies work, deletion is restricted');
+ await member.req('/api/community/posts/'+postId+'/like','PUT',{active:true});await member.req('/api/community/posts/'+postId+'/like','PUT',{active:true});await member.req('/api/community/posts/'+postId+'/bookmark','PUT',{active:true});
+ assert.equal((await member.req('/api/community/posts/'+postId)).json.post.likeCount,1);
+ assert.equal((await owner.req('/api/community/posts?bookmarks=true&userId='+member.user.id)).json.items.length,0);
+ assert((await member.req('/api/community/posts?bookmarks=true')).json.items.some(p=>p.id===postId));passed('likes are idempotent and bookmarks are private');
+ assert.equal((await member.req('/api/community/profile','PATCH',{name:member.user.name,bio:'测试资料',avatarId:'',role:'owner'})).status,200);assert.equal((await member.req('/api/community/me')).json.user.role,'member');passed('profile editing cannot change role');
+ assert.equal((await member.req('/api/community/posts','POST',{...draft,link:'javascript:alert(1)'})).status,400);passed('unsafe project URLs are rejected');
+ const unsupported=new FormData();unsupported.append('file',new Blob(['QA'],{type:'application/octet-stream'}),'qa-file.exe');assert.equal((await member.req('/api/community/upload','POST',unsupported)).status,400);passed('unsupported uploads are rejected');
+ await owner.req('/api/community/reports','POST',{targetType:'post',targetId:postId,reason:'QA 举报处理测试'});let dashboard=(await admin.req('/api/community/admin')).json;const report=dashboard.reports.find(r=>r.target_id===postId);assert(report);await admin.req('/api/community/admin/reports','POST',{reportId:report.id});
+ await admin.req('/api/community/admin/posts','POST',{postId,action:'hide'});assert.equal((await member.req('/api/community/files/'+fileId)).status,404);assert.equal((await member.req('/api/community/posts/'+postId)).status,404);await owner.req('/api/community/admin/posts','POST',{postId,action:'restore'});assert.equal((await member.req('/api/community/files/'+fileId)).status,200);passed('reports are manageable; hiding content also hides attachments');
+ assert.equal((await admin.req('/api/community/admin/users','POST',{userId:member.user.id,action:'promote'})).status,403);assert.equal((await owner.req('/api/community/admin/users','POST',{userId:member.user.id,action:'promote'})).status,200);assert.equal((await member.req('/api/community/me')).json.user.role,'admin');await owner.req('/api/community/admin/users','POST',{userId:member.user.id,action:'demote'});passed('only the owner can grant and revoke administration');
+ await admin.req('/api/community/admin/users','POST',{userId:member.user.id,action:'revoke'});assert.equal((await member.req('/api/community/posts','POST',draft)).status,403);assert.equal((await member.req('/api/community/posts/'+postId,'PATCH',draft)).status,403);assert.equal((await member.req('/api/community/posts/'+postId,'DELETE')).status,200);assert.equal((await member.req('/api/community/files/'+fileId)).status,404);passed('revoked authors cannot publish or edit, but can delete their own work');
+ assert.equal((await owner.req('/api/community/admin/users','POST',{userId:member.user.id,action:'ban'})).status,200);assert.notEqual((await member.req('/api/community/me')).json.user?.id,member.user.id);await owner.req('/api/community/admin/users','POST',{userId:member.user.id,action:'unban'});passed('account suspension revokes active sessions');
+ const cross=await fetch(base+'/api/community/reports',{method:'POST',headers:{Origin:'https://untrusted.example','Content-Type':'application/json'},body:JSON.stringify({})});assert.equal(cross.status,403);passed('cross-origin writes are rejected');
+ console.log(JSON.stringify({passed:checks.length,checks}));
+}catch(e){console.error('INTEGRATION FAILURE',e);process.exitCode=1}

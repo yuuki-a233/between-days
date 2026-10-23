@@ -1,0 +1,9 @@
+**/.git/
+**/.next/
+**/.wrangler/
+**/.sites-runtime/
+**/data/
+**/backups/
+**/.env*
+!**/.env.example
+**/*.tsbuildinfo

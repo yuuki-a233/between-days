@@ -1,0 +1,1 @@
+ALTER TABLE `posts` ADD `link` text DEFAULT '' NOT NULL;

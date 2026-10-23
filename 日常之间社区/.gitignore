@@ -1,0 +1,9 @@
+node_modules/
+.next/
+data/
+.env*
+!.env.example
+*.tsbuildinfo
+playwright-results/
+backups/
+work/

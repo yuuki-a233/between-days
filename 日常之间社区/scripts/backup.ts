@@ -1,0 +1,10 @@
+import fs from 'node:fs';import path from 'node:path';import {backup,DatabaseSync} from 'node:sqlite';
+const source=path.resolve(process.env.DATA_DIR||'data');
+const destination=path.resolve(process.argv[2]||path.join('backups',new Date().toISOString().replace(/[:.]/g,'-')));
+if(destination===source||destination.startsWith(source+path.sep))throw new Error('备份目录必须位于数据目录之外。');
+fs.mkdirSync(destination,{recursive:true});
+const db=new DatabaseSync(path.join(source,'community.sqlite'));await backup(db,path.join(destination,'community.sqlite'));db.close();
+if(fs.existsSync(path.join(source,'uploads')))fs.cpSync(path.join(source,'uploads'),path.join(destination,'uploads'),{recursive:true});
+if(fs.existsSync(path.join(source,'.runtime.json')))fs.copyFileSync(path.join(source,'.runtime.json'),path.join(destination,'.runtime.json'));
+fs.writeFileSync(path.join(destination,'backup.json'),JSON.stringify({version:1,createdAt:new Date().toISOString()},null,2));
+console.log('Backup saved:',destination);

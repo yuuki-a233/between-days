@@ -1,0 +1,23 @@
+[Unit]
+Description=Between the Days Community
+After=network.target
+
+[Service]
+Type=simple
+User=between-days
+WorkingDirectory=/srv/between-days
+Environment=NODE_ENV=production
+Environment=NEXT_TELEMETRY_DISABLED=1
+EnvironmentFile=/etc/between-days.env
+ExecStart=/usr/bin/node scripts/launch.mjs start
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/between-days/data /srv/between-days/.next
+
+[Install]
+WantedBy=multi-user.target

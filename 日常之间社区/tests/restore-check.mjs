@@ -1,0 +1,9 @@
+import {spawnSync} from 'node:child_process';import fs from 'node:fs';import path from 'node:path';import crypto from 'node:crypto';import {DatabaseSync} from 'node:sqlite';
+const stamp=Date.now(),source=path.resolve(process.env.DATA_DIR||'data'),backupDir=path.resolve('../community-verified-backup-'+stamp),restoreDir=path.resolve('../community-verified-restore-'+stamp);
+if(fs.existsSync(path.join(backupDir,'community.sqlite'))||fs.existsSync(path.join(restoreDir,'community.sqlite')))throw new Error('Use fresh verification directories.');
+const backup=spawnSync(process.execPath,['scripts/backup.ts',backupDir],{stdio:'inherit'});if(backup.status!==0)throw new Error('backup failed');fs.cpSync(backupDir,restoreDir,{recursive:true});
+const migrated=spawnSync(process.execPath,['scripts/migrate.ts'],{env:{...process.env,DATA_DIR:restoreDir},stdio:'inherit'});if(migrated.status!==0)throw new Error('restored migration failed');
+const a=new DatabaseSync(path.join(source,'community.sqlite')),b=new DatabaseSync(path.join(restoreDir,'community.sqlite'));if(b.prepare('PRAGMA integrity_check').get().integrity_check!=='ok')throw new Error('Integrity check failed');
+for(const table of ['posts','profiles','user','files','comments','bookmarks']){const countA=a.prepare('SELECT COUNT(*) AS n FROM '+table).get().n,countB=b.prepare('SELECT COUNT(*) AS n FROM '+table).get().n;if(countA!==countB)throw new Error('Count mismatch '+table);console.log('PASS restored table',table,countA)}
+for(const f of a.prepare('SELECT id FROM files').all()){const digest=p=>crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');if(digest(path.join(source,'uploads',f.id))!==digest(path.join(restoreDir,'uploads',f.id)))throw new Error('File restore mismatch')}
+a.close();b.close();console.log('PASS restored database migrates and uploaded bytes match');

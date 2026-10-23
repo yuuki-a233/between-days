@@ -1,0 +1,38 @@
+{
+  "name": "between-days-community",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.15.0"
+  },
+  "scripts": {
+    "dev": "node scripts/launch.mjs dev",
+    "build": "node scripts/build.mjs",
+    "start": "node scripts/launch.mjs start",
+    "migrate": "node scripts/migrate.ts",
+    "backup": "node scripts/backup.ts",
+    "check": "tsc --noEmit",
+    "test": "node --test tests/core.test.ts",
+    "test:integration": "node tests/integration.mjs",
+    "test:production-guard": "node tests/production-guard.mjs"
+  },
+  "dependencies": {
+    "next": "16.3.4",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "better-auth": "1.7.12",
+    "nodemailer": "^7.0.0",
+    "lucide-react": "1.31.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "@types/node": "^24.0.0",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@types/nodemailer": "^7.0.0"
+  }
+}
